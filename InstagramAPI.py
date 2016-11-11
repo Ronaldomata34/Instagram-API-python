@@ -147,6 +147,7 @@ class InstagramAPI:
             if self.configure(upload_id, image, caption):
                 image.close()
                 self.expose()
+                return True
         return False
 
     def uploadVideo(self, video, caption = None, upload_id = None, frame_time_thumbnail=0):
@@ -211,6 +212,7 @@ class InstagramAPI:
             if response.status_code == 200:
                 if self.configureVideo(upload_id, video, frame_time_thumbnail, caption):
                     self.expose()
+                    return True
         return False
 
     def direct_share(self, media_id, recipients, text = None):
