@@ -1,6 +1,6 @@
 ﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import requests
+import os
 import random
 import json
 import hashlib
@@ -10,7 +10,9 @@ import uuid
 import time
 import copy
 import math
-from ImageUtils import getImageSize
+
+import requests
+from PIL import Image, ImageOps
 from requests_toolbelt import MultipartEncoder
 from moviepy.editor import VideoFileClip
 
@@ -115,6 +117,15 @@ class InstagramAPI:
     def uploadPhoto(self, photo, caption = None, upload_id = None):
         if upload_id is None:
             upload_id = str(int(time.time() * 1000))
+
+        # Using Pillow to get the image sizes, this way we avoid unsuported formates issues.
+        image = Image.open(photo)   
+        (width, height) = image.size
+        # We check the aspect ratio. Instagram only accepts some aspect ratios.
+        if width * 1.25 < height:
+            image = ImageOps.fit(image, (width, width * 1.25))
+            image.save(photo)
+
         data = {
         'upload_id'         : upload_id,
         '_uuid'             : self.uuid,
@@ -133,11 +144,15 @@ class InstagramAPI:
                                 'User-Agent' : self.USER_AGENT})
         response = self.s.post(self.API_URL + "upload/photo/", data=m.to_string())
         if response.status_code == 200:
-            if self.configure(upload_id, photo, caption):
+            if self.configure(upload_id, image, caption):
+                image.close()
                 self.expose()
         return False
 
-    def uploadVideo(self, video, thumbnail, caption = None, upload_id = None):
+    def uploadVideo(self, video, caption = None, upload_id = None, frame_time_thumbnail=0):
+        '''
+        Uploads a video to Instagram creating in the process a thumbnail at the frame_time_thumbnail time
+        '''
         if upload_id is None:
             upload_id = str(int(time.time() * 1000))
         data = {
@@ -194,7 +209,7 @@ class InstagramAPI:
             self.s.headers = headers
 
             if response.status_code == 200:
-                if self.configureVideo(upload_id, video, thumbnail, caption):
+                if self.configureVideo(upload_id, video, frame_time_thumbnail, caption):
                     self.expose()
         return False
 
@@ -202,9 +217,16 @@ class InstagramAPI:
         # TODO Instagram.php 420-490
         return False
 
-    def configureVideo(self, upload_id, video, thumbnail, caption = ''):
+    def configureVideo(self, upload_id, video, frame_time_thumbnail=0, caption = ''):
         clip = VideoFileClip(video)
-        self.uploadPhoto(photo=thumbnail, caption=caption, upload_id=upload_id)
+        # Creating a thumbnail:
+        clip.save_frame('thumbnail_TEMP.jpg', frame_time_thumbnail)
+        self.uploadPhoto(photo='thumbnail_TEMP.jpg', caption=caption, upload_id=upload_id)
+
+        # After the thumbnail is created and uploaded it's deleted
+        os.remove('thumbnail_TEMP.jpg')
+
+        # The vidoe is configured
         data = json.dumps({
             'upload_id': upload_id,
             'source_type': 3,
@@ -230,8 +252,10 @@ class InstagramAPI:
         })
         return self.SendRequest('media/configure/?video=1', self.generateSignature(data))
 
-    def configure(self, upload_id, photo, caption = ''):
-        (w,h) = getImageSize(photo)
+    def configure(self, upload_id, image, caption = ''):
+
+        width, height = image.size
+        
         data = json.dumps({
         '_csrftoken'    : self.token,
         'media_folder'  : 'Instagram',
@@ -242,13 +266,13 @@ class InstagramAPI:
         'upload_id'     : upload_id,
         'device'        : self.DEVICE_SETTINTS,
         'edits'         : {
-            'crop_original_size': [w * 1.0, h * 1.0],
-            'crop_center'       : [0.0, 0.0],
+            'crop_original_size': [width * 1.0, height],
+            'crop_center'       : [0.5, 0.5],
             'crop_zoom'         : 1.0
         },
         'extra'         : {
-            'source_width'  : w,
-            'source_height' : h,
+            'source_width'  : width,
+            'source_height' : height,
         }})
         return self.SendRequest('media/configure/?', self.generateSignature(data))
 
